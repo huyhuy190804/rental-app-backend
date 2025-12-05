@@ -15,6 +15,74 @@ router.get('/', verifyToken, isAdmin, async (req, res) => {
   }
 });
 
+// GET /api/users/:id/membership - Get user membership status and post count
+router.get('/:id/membership', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.user_id;
+    
+    // Only allow user to check their own membership or admin
+    if (userId !== id && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    // Get active membership
+    const [memberships] = await db.query(`
+      SELECT mu.*, mp.name as package_name, mp.post_limit, mp.duration, mp.price
+      FROM membership_user mu
+      JOIN membership_packages mp ON mu.ms_id = mp.ms_id
+      WHERE mu.user_id = ? AND mu.status = 'active' AND mu.end_at > NOW()
+      ORDER BY mu.end_at DESC
+      LIMIT 1
+    `, [id]);
+
+    // Check if membership was renewed in current month
+    let canRenew = true;
+    if (memberships.length > 0) {
+      const membership = memberships[0];
+      const startDate = new Date(membership.start_at);
+      const now = new Date();
+      const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      
+      // If membership started in current month, cannot renew yet
+      if (startDate >= startOfCurrentMonth) {
+        canRenew = false;
+      }
+    }
+
+    // Get post count for current month
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const [postCount] = await db.query(`
+      SELECT COUNT(*) as count
+      FROM posts
+      WHERE user_id = ? AND created_at >= ?
+    `, [id, startOfMonth]);
+
+    const currentPostCount = postCount[0]?.count || 0;
+    const membership = memberships.length > 0 ? memberships[0] : null;
+
+    res.json({
+      success: true,
+      data: {
+        hasActiveMembership: !!membership,
+        membership: membership ? {
+          package_name: membership.package_name,
+          post_limit: membership.post_limit,
+          start_at: membership.start_at,
+          end_at: membership.end_at,
+          daysRemaining: membership.end_at ? Math.ceil((new Date(membership.end_at) - now) / (1000 * 60 * 60 * 24)) : 0
+        } : null,
+        currentPostCount,
+        canCreatePost: membership ? currentPostCount < membership.post_limit : false,
+        canRenew: canRenew // ✅ Can only renew when new month starts
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // GET /api/users/:id - Lấy thông tin 1 user
 router.get('/:id', verifyToken, async (req, res) => {
   try {

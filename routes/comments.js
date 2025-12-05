@@ -9,6 +9,7 @@ const router = express.Router();
 router.get('/post/:postId', async (req, res) => {
   try {
     const { postId } = req.params;
+    console.log('📝 Fetching comments for post:', postId);
 
     const [comments] = await db.query(
       `SELECT c.comment_id, c.content_comment, c.rating, c.created_at, c.user_id,
@@ -20,8 +21,10 @@ router.get('/post/:postId', async (req, res) => {
       [postId]
     );
 
+    console.log(`✅ Found ${comments.length} comments for post ${postId}`);
     res.json({ success: true, data: comments });
   } catch (error) {
+    console.error('❌ Error fetching comments:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

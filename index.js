@@ -9,6 +9,7 @@ import commentsRoutes from "./routes/comments.js";
 import membershipRoutes from "./routes/membership_packages.js";
 import plansRoutes from "./routes/plans.js";
 import transactionsRoutes from "./routes/transactions.js";
+import adminSetupRoutes from "./routes/admin-setup.js";
 
 dotenv.config();
 
@@ -32,6 +33,7 @@ app.use('/api/comments', commentsRoutes);
 app.use('/api/membership_packages', membershipRoutes);
 app.use('/api/plans', plansRoutes);
 app.use('/api/transactions', transactionsRoutes);
+app.use('/api/admin-setup', adminSetupRoutes); // ⚠️ DEV ONLY - Disable in production
 
 // 404 handler
 app.use((req, res) => {

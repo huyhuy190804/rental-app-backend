@@ -70,7 +70,7 @@ router.get('/:id/image/:index', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || 1000; // Increase default limit
     const offset = (page - 1) * limit;
     const status = req.query.status || null;
 
@@ -126,37 +126,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/posts/:id - Get single post details
-router.get('/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const [posts] = await db.query(`
-      SELECT 
-        p.*,
-        u.name as author_name,
-        u.email as author_email,
-        u.phone as author_phone,
-        (SELECT COUNT(*) FROM images WHERE post_id = p.post_id) as image_count
-      FROM posts p
-      LEFT JOIN users u ON p.user_id = u.user_id
-      WHERE p.post_id = ?
-    `, [id]);
-
-    if (posts.length === 0) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Post not found' 
-      });
-    }
-
-    res.json({ success: true, data: posts[0] });
-  } catch (error) {
-    console.error('Error fetching post:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
 // POST /api/posts - Create new post
 router.post('/', verifyToken, async (req, res) => {
   try {
@@ -169,6 +138,43 @@ router.post('/', verifyToken, async (req, res) => {
       return res.status(400).json({ 
         success: false, 
         message: 'Title and description are required' 
+      });
+    }
+
+    // ✅ Check membership and post limit
+    const [memberships] = await db.query(`
+      SELECT mu.*, mp.post_limit
+      FROM membership_user mu
+      JOIN membership_packages mp ON mu.ms_id = mp.ms_id
+      WHERE mu.user_id = ? AND mu.status = 'active' AND mu.end_at > NOW()
+      ORDER BY mu.end_at DESC
+      LIMIT 1
+    `, [user_id]);
+
+    if (memberships.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn cần đăng ký gói Premium để đăng bài viết. Vui lòng nâng cấp tài khoản!'
+      });
+    }
+
+    const membership = memberships[0];
+    
+    // Check post count for current month
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const [postCount] = await db.query(`
+      SELECT COUNT(*) as count
+      FROM posts
+      WHERE user_id = ? AND created_at >= ?
+    `, [user_id, startOfMonth]);
+
+    const currentPostCount = postCount[0]?.count || 0;
+    
+    if (currentPostCount >= membership.post_limit) {
+      return res.status(403).json({
+        success: false,
+        message: `Bạn đã đạt giới hạn ${membership.post_limit} bài viết/tháng. Vui lòng nâng cấp gói hoặc đợi tháng sau!`
       });
     }
 
@@ -288,6 +294,37 @@ router.patch('/:id/increment-view', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error incrementing view:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/posts/:id - Get single post details (MUST be after specific routes)
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [posts] = await db.query(`
+      SELECT 
+        p.*,
+        u.name as author_name,
+        u.email as author_email,
+        u.phone as author_phone,
+        (SELECT COUNT(*) FROM images WHERE post_id = p.post_id) as image_count
+      FROM posts p
+      LEFT JOIN users u ON p.user_id = u.user_id
+      WHERE p.post_id = ?
+    `, [id]);
+
+    if (posts.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Post not found' 
+      });
+    }
+
+    res.json({ success: true, data: posts[0] });
+  } catch (error) {
+    console.error('Error fetching post:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
