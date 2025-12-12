@@ -145,6 +145,106 @@ router.patch('/:id', verifyToken, async (req, res) => {
   }
 });
 
+// PUT /api/users/:id/profile - Cập nhật profile (bao gồm cả password)
+router.put('/:id/profile', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.user_id;
+    
+    // Chỉ cho phép user update chính profile của mình
+    if (userId !== id) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    const { name, email, phone, currentPassword, newPassword } = req.body;
+
+    // Validate required fields
+    if (!name || !email || !phone) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Vui lòng điền đầy đủ thông tin!' 
+      });
+    }
+
+    // Lấy thông tin user hiện tại
+    const [users] = await db.query('SELECT * FROM users WHERE user_id = ?', [id]);
+    if (users.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    const user = users[0];
+
+    // Nếu đổi password
+    if (newPassword) {
+      if (!currentPassword) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Vui lòng nhập mật khẩu hiện tại để đổi mật khẩu mới!' 
+        });
+      }
+      
+      // Kiểm tra mật khẩu hiện tại
+      if (currentPassword !== user.password) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Mật khẩu hiện tại không đúng!' 
+        });
+      }
+
+      // Update với password mới
+      await db.query(
+        'UPDATE users SET name = ?, email = ?, phone = ?, password = ? WHERE user_id = ?',
+        [name, email, phone, newPassword, id]
+      );
+    } else {
+      // Update không có password
+      await db.query(
+        'UPDATE users SET name = ?, email = ?, phone = ? WHERE user_id = ?',
+        [name, email, phone, id]
+      );
+    }
+
+    // Lấy thông tin user đã update
+    const [updatedUsers] = await db.query(
+      'SELECT user_id, name, email, phone, role, status, image_url FROM users WHERE user_id = ?',
+      [id]
+    );
+
+    res.json({ 
+      success: true, 
+      message: 'Cập nhật thông tin thành công!',
+      user: updatedUsers[0]
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// GET /api/users/:id/password - Lấy password của user (chỉ chính user đó)
+router.get('/:id/password', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.user_id;
+    
+    // Only allow user to get their own password
+    if (userId !== id) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    const [rows] = await db.query(
+      'SELECT password FROM users WHERE user_id = ?',
+      [id]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    
+    res.json({ success: true, password: rows[0].password });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // DELETE /api/users/:id - Xóa user (chỉ admin)
 router.delete('/:id', verifyToken, isAdmin, async (req, res) => {
   try {

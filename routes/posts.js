@@ -81,7 +81,7 @@ router.post('/:id/comments', verifyToken, async (req, res) => {
       post_id: id, 
       user_id, 
       content_length: content?.length,
-      has_parent: !!parent_comment_id 
+      has_parent: !!parent_comment_id
     });
 
     if (!content || !content.trim()) {
@@ -102,14 +102,13 @@ router.post('/:id/comments', verifyToken, async (req, res) => {
       });
     }
 
-    // Check parent comment if exists
+    // Check parent comment if exists (for threaded replies)
     if (parent_comment_id) {
-      const [parentComment] = await db.query(
+      const [parent] = await db.query(
         'SELECT comment_id FROM comment WHERE comment_id = ? AND post_id = ?',
         [parent_comment_id, id]
       );
-      
-      if (parentComment.length === 0) {
+      if (parent.length === 0) {
         console.log('❌ Parent comment not found:', parent_comment_id);
         return res.status(404).json({
           success: false,
@@ -120,7 +119,7 @@ router.post('/:id/comments', verifyToken, async (req, res) => {
 
     const comment_id = `comment_${Date.now()}`;
 
-    // ✅ INSERT vào bảng 'comment' (số ít)
+    // ✅ INSERT vào bảng 'comment' (hỗ trợ parent_comment_id nếu có cột)
     const insertQuery = `
       INSERT INTO comment (comment_id, content_comment, user_id, post_id, parent_comment_id, rating, created_at)
       VALUES (?, ?, ?, ?, ?, 5, NOW())
@@ -133,7 +132,7 @@ router.post('/:id/comments', verifyToken, async (req, res) => {
       comment_id, 
       content.trim(), 
       user_id, 
-      id, 
+      id,
       parent_comment_id || null
     ]);
 
@@ -178,7 +177,7 @@ router.get('/:id/comments', async (req, res) => {
         u.email as user_email
       FROM comment c
       LEFT JOIN users u ON c.user_id = u.user_id
-      WHERE c.post_id = ? AND c.deleted_at IS NULL
+      WHERE c.post_id = ?
       ORDER BY c.created_at ASC
     `, [id]);
 
