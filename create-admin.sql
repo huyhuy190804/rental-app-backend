@@ -1,3 +1,4 @@
+-- wrstudios-backend/create-admin.sql
 -- Script to create admin user account
 -- Run this in MySQL to create admin account
 

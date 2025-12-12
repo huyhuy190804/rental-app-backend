@@ -1,3 +1,4 @@
+-- wrstudios-backend/check-posts.sql
 -- Script to check posts in database
 USE rental_app;
 

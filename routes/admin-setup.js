@@ -1,3 +1,4 @@
+// wrstudios-backend/routes/admin-setup.js
 // Admin Setup Route - Only for development/testing
 // ⚠️ DISABLE THIS IN PRODUCTION!
 import express from 'express';

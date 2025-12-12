@@ -1,11 +1,13 @@
-// wrstudios-backend/routes/posts.js - FIXED VERSION
+// wrstudios-backend/routes/posts.js - FIXED CLEAN VERSION
 import express from 'express';
 import db from '../config/database.js';
 import { verifyToken, isAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// ✅ FIX: Thêm route GET all images của post
+// ==================== IMAGES ROUTES ====================
+
+// GET /api/posts/:id/images - Get all images
 router.get('/:id/images', async (req, res) => {
   try {
     const { id } = req.params;
@@ -28,7 +30,7 @@ router.get('/:id/images', async (req, res) => {
   }
 });
 
-// ✅ FIX: Route lấy 1 ảnh theo index (đổi từ /images/:index thành /image/:index)
+// GET /api/posts/:id/image/:index - Get single image by index
 router.get('/:id/image/:index', async (req, res) => {
   try {
     const { id, index } = req.params;
@@ -66,11 +68,139 @@ router.get('/:id/image/:index', async (req, res) => {
   }
 });
 
-// GET /api/posts - Get all posts with pagination + THUMBNAIL
+// ==================== COMMENTS ROUTES ====================
+
+// POST /api/posts/:id/comments - Add comment to 'comment' table
+router.post('/:id/comments', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { content, parent_comment_id } = req.body;
+    const user_id = req.user.user_id;
+
+    console.log('📝 Adding comment:', { 
+      post_id: id, 
+      user_id, 
+      content_length: content?.length,
+      has_parent: !!parent_comment_id 
+    });
+
+    if (!content || !content.trim()) {
+      console.log('❌ Content is empty');
+      return res.status(400).json({
+        success: false,
+        message: 'Comment content is required'
+      });
+    }
+
+    // Check if post exists
+    const [posts] = await db.query('SELECT post_id FROM posts WHERE post_id = ?', [id]);
+    if (posts.length === 0) {
+      console.log('❌ Post not found:', id);
+      return res.status(404).json({
+        success: false,
+        message: 'Post not found'
+      });
+    }
+
+    // Check parent comment if exists
+    if (parent_comment_id) {
+      const [parentComment] = await db.query(
+        'SELECT comment_id FROM comment WHERE comment_id = ? AND post_id = ?',
+        [parent_comment_id, id]
+      );
+      
+      if (parentComment.length === 0) {
+        console.log('❌ Parent comment not found:', parent_comment_id);
+        return res.status(404).json({
+          success: false,
+          message: 'Parent comment not found'
+        });
+      }
+    }
+
+    const comment_id = `comment_${Date.now()}`;
+
+    // ✅ INSERT vào bảng 'comment' (số ít)
+    const insertQuery = `
+      INSERT INTO comment (comment_id, content_comment, user_id, post_id, parent_comment_id, rating, created_at)
+      VALUES (?, ?, ?, ?, ?, 5, NOW())
+    `;
+
+    console.log('🔍 SQL Query:', insertQuery);
+    console.log('🔍 SQL Params:', [comment_id, content.trim(), user_id, id, parent_comment_id || null]);
+
+    await db.query(insertQuery, [
+      comment_id, 
+      content.trim(), 
+      user_id, 
+      id, 
+      parent_comment_id || null
+    ]);
+
+    console.log(`✅ Comment added: ${comment_id}${parent_comment_id ? ` (reply to ${parent_comment_id})` : ''}`);
+
+    res.status(201).json({
+      success: true,
+      message: 'Comment added successfully',
+      comment_id
+    });
+  } catch (error) {
+    console.error('❌ Error adding comment:', error);
+    console.error('❌ SQL Error:', error.sqlMessage);
+    console.error('❌ Error Code:', error.code);
+    
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      sqlError: error.sqlMessage,
+      code: error.code
+    });
+  }
+});
+
+// GET /api/posts/:id/comments - Get all comments from 'comment' table
+router.get('/:id/comments', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log('📖 Getting comments for post:', id);
+
+    // ✅ Query từ bảng 'comment' (số ít)
+    const [comments] = await db.query(`
+      SELECT 
+        c.comment_id,
+        c.content_comment as content,
+        c.rating,
+        c.created_at,
+        c.user_id,
+        c.parent_comment_id,
+        u.name as user_name,
+        u.email as user_email
+      FROM comment c
+      LEFT JOIN users u ON c.user_id = u.user_id
+      WHERE c.post_id = ? AND c.deleted_at IS NULL
+      ORDER BY c.created_at ASC
+    `, [id]);
+
+    console.log(`✅ Found ${comments.length} comments for post ${id}`);
+
+    res.json({
+      success: true,
+      data: comments
+    });
+  } catch (error) {
+    console.error('❌ Error getting comments:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================== POSTS ROUTES ====================
+
+// GET /api/posts - Get all posts with pagination
 router.get('/', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 1000; // Increase default limit
+    const limit = parseInt(req.query.limit) || 1000;
     const offset = (page - 1) * limit;
     const status = req.query.status || null;
 
@@ -141,7 +271,7 @@ router.post('/', verifyToken, async (req, res) => {
       });
     }
 
-    // ✅ Check membership and post limit
+    // Check membership and post limit
     const [memberships] = await db.query(`
       SELECT mu.*, mp.post_limit
       FROM membership_user mu
@@ -160,7 +290,6 @@ router.post('/', verifyToken, async (req, res) => {
 
     const membership = memberships[0];
     
-    // Check post count for current month
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const [postCount] = await db.query(`
@@ -182,10 +311,10 @@ router.post('/', verifyToken, async (req, res) => {
 
     await db.query(`
       INSERT INTO posts (post_id, title, description, address, price, area, post_type, user_id, status, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', NOW())
     `, [post_id, title, description, address || null, price || null, area || null, post_type || 'listing', user_id]);
 
-    console.log(`✅ Post created: ${post_id}`);
+    console.log(`✅ Post created and auto-approved: ${post_id}`);
 
     if (images && Array.isArray(images) && images.length > 0) {
       const imageValues = images.map((img, idx) => [
@@ -205,7 +334,7 @@ router.post('/', verifyToken, async (req, res) => {
 
     res.status(201).json({ 
       success: true, 
-      message: 'Post created successfully',
+      message: 'Post created and published successfully',
       post_id 
     });
   } catch (error) {
@@ -214,7 +343,7 @@ router.post('/', verifyToken, async (req, res) => {
   }
 });
 
-// PATCH /api/posts/:id/approve - Approve post (admin only)
+// PATCH /api/posts/:id/approve - Approve post
 router.patch('/:id/approve', verifyToken, async (req, res) => {
   try {
     const [posts] = await db.query('SELECT post_id FROM posts WHERE post_id = ?', [req.params.id]);
@@ -238,7 +367,7 @@ router.patch('/:id/approve', verifyToken, async (req, res) => {
   }
 });
 
-// PATCH /api/posts/:id/reject - Reject post (admin only)
+// PATCH /api/posts/:id/reject - Reject post
 router.patch('/:id/reject', verifyToken, async (req, res) => {
   try {
     const [posts] = await db.query('SELECT post_id FROM posts WHERE post_id = ?', [req.params.id]);
@@ -262,7 +391,7 @@ router.patch('/:id/reject', verifyToken, async (req, res) => {
   }
 });
 
-// DELETE /api/posts/:id - Delete post (admin or owner)
+// DELETE /api/posts/:id - Delete post
 router.delete('/:id', verifyToken, async (req, res) => {
   try {
     const [posts] = await db.query('SELECT post_id FROM posts WHERE post_id = ?', [req.params.id]);
@@ -284,7 +413,7 @@ router.delete('/:id', verifyToken, async (req, res) => {
   }
 });
 
-// PATCH /api/posts/:id/increment-view - Tăng lượt xem
+// PATCH /api/posts/:id/increment-view - Increment view count
 router.patch('/:id/increment-view', async (req, res) => {
   try {
     await db.query(
@@ -298,7 +427,7 @@ router.patch('/:id/increment-view', async (req, res) => {
   }
 });
 
-// GET /api/posts/:id - Get single post details (MUST be after specific routes)
+// GET /api/posts/:id - Get single post (MUST be last)
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
