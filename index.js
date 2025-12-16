@@ -10,7 +10,6 @@ import membershipRoutes from "./routes/membership_packages.js";
 import plansRoutes from "./routes/plans.js";
 import transactionsRoutes from "./routes/transactions.js";
 import adminSetupRoutes from "./routes/admin-setup.js";
-
 dotenv.config();
 
 const app = express();
